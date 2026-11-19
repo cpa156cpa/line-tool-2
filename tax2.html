@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>扣繳與二代健保試算機</title>
+  <style>
+    * { box-sizing: border-box; font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; }
+    body { margin: 0; padding: 16px; background: #f3f5f8; color: #1f2937; }
+    .container { max-width: 500px; margin: 0 auto; }
+    .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); margin-bottom: 16px; }
+    h1 { font-size: 18px; margin: 0 0 14px; text-align: center; }
+    .field { margin-bottom: 12px; }
+    label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    select, input[type="number"] {
+      width: 100%; padding: 11px 12px; font-size: 15px;
+      border: 1px solid #94a3b8; border-radius: 8px; background: #fff;
+    }
+    input[type="number"] { font-size: 18px; font-weight: 600; }
+
+    .toggle-group { display: flex; gap: 8px; }
+    .toggle-btn {
+      flex: 1; padding: 10px 8px; border: 1px solid #cbd5e1;
+      background: #f8fafc; border-radius: 8px; font-size: 13px;
+      font-weight: 600; cursor: pointer;
+    }
+    .toggle-btn.active { background: #1e3a8a; color: #fff; border-color: #1e3a8a; }
+
+    .result-box { border: 2px solid #1e3a8a; border-radius: 10px; overflow: hidden; background: #f8faff; }
+    .result-header { background: #1e3a8a; color: #fff; padding: 10px 14px; font-weight: 700; font-size: 15px; }
+    .row { display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
+    .row:last-child { border-bottom: none; }
+    .row .val { font-weight: 700; font-size: 16px; }
+    .row.highlight { background: #eff6ff; font-size: 15px; }
+    .row.highlight .val { color: #1e3a8a; font-size: 18px; }
+
+    .copy-btn {
+      width: 100%; margin-top: 12px; padding: 12px; border: none;
+      border-radius: 8px; background: #0f766e; color: #fff;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+    }
+    .copied-msg { text-align: center; color: #15803d; font-size: 13px; margin-top: 8px; min-height: 18px; }
+
+    .portal-section { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #cbd5e1; }
+    .portal-title { font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 6px; }
+    .portal-status { font-size: 12px; color: #64748b; margin-bottom: 10px; line-height: 1.45; }
+    .portal-grid { display: flex; flex-direction: column; gap: 10px; }
+    .portal-link {
+      display: flex; justify-content: space-between; align-items: center;
+      text-decoration: none; padding: 12px 14px; border-radius: 8px;
+      font-size: 14px; font-weight: 700; border: 1px solid #cbd5e1;
+      color: #64748b; background: #f8fafc; transition: all 0.15s ease;
+    }
+    .portal-link.ready-tax {
+      background: #fff7ed; border-color: #ea580c; color: #c2410c;
+      box-shadow: 0 2px 6px rgba(234, 88, 12, 0.15);
+    }
+    .portal-link.ready-nhi {
+      background: #eff6ff; border-color: #2563eb; color: #1d4ed8;
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.15);
+    }
+    .badge {
+      font-size: 12px; padding: 2px 8px; border-radius: 999px;
+      background: #e2e8f0; color: #475569; font-weight: 600;
+    }
+    .ready-tax .badge { background: #ffedd5; color: #c2410c; }
+    .ready-nhi .badge { background: #dbeafe; color: #1d4ed8; }
+
+    .note { font-size: 12px; color: #475569; margin-top: 10px; line-height: 1.55; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>扣繳與二代健保試算</h1>
+
+      <div class="field">
+        <label for="residency">1. 所得人身分</label>
+        <select id="residency" onchange="calculate()">
+          <option value="resident">1境內居住者（含居留滿 183 天）</option>
+          <option value="nonresident">2非境內居住者（含居留未滿 183 天）</option>
+          <option value="firm">3事務所（會計師／律師／地政士/其他事務所）</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="incomeType">2. 所得／給付類別</label>
+        <select id="incomeType" onchange="calculate()">
+          <option value="rent">租金（50）</option>
+          <option value="exec">執行業務所得（9A/9B，如講師費、設計費）</option>
+          <option value="salary">薪資所得（簡化試算）</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>3. 計算方式</label>
+        <div class="toggle-group">
+          <button type="button" id="btnGross" class="toggle-btn active" onclick="setCalcMode('gross')">輸入應付總額</button>
+          <button type="button" id="btnNet" class="toggle-btn" onclick="setCalcMode('net')">反推實拿金額</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label id="amountLabel" for="amountInput">4. 請輸入應給付總額（新臺幣元）</label>
+        <input type="number" id="amountInput" inputmode="numeric" placeholder="例如：30000" oninput="calculate()" />
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="result-box">
+        <div class="result-header">試算結果明細</div>
+        <div class="row">
+          <span>應給付總額</span>
+          <span class="val" id="grossOut">0 元</span>
+        </div>
+        <div class="row">
+          <span>所得稅扣繳金額</span>
+          <span class="val" id="whtOut">0 元</span>
+        </div>
+        <div class="row">
+          <span>二代健保補充保費（2.11%）</span>
+          <span class="val" id="nhiOut">0 元</span>
+        </div>
+        <div class="row highlight">
+          <span>實際匯款／實拿淨額</span>
+          <span class="val" id="netOut">0 元</span>
+        </div>
+      </div>
+
+      <button type="button" class="copy-btn" onclick="copyResult()">複製試算明細</button>
+      <div id="copiedMsg" class="copied-msg"></div>
+
+      <div class="portal-section">
+        <div class="portal-title">一鍵前往官方網頁列印正式繳款書：</div>
+        <div id="portalStatus" class="portal-status">請先輸入金額試算，系統會依應繳項目亮起對應按鈕。</div>
+        <div class="portal-grid">
+          <a id="linkTaxPortal" class="portal-link" href="https://www.etax.nat.gov.tw/etwmain/etw144w" target="_blank" rel="noopener">
+            <span>財政部稅務入口網（扣繳繳款書）</span>
+            <span class="badge" id="taxBadge">前往列印 →</span>
+          </a>
+          <a id="linkNhiPortal" class="portal-link" href="https://eservice.nhi.gov.tw/2nd/" target="_blank" rel="noopener">
+            <span>衛福部健保署專區（二代健保繳款書）</span>
+            <span class="badge" id="nhiBadge">前往列印 →</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="note" id="ruleDesc"></div>
+      <div class="note">※ 正式條碼繳款書須由財政部與健保署官方系統產生銷帳編號；如不確定繳款書代號（如 151～169），建議先按「複製試算明細」傳給事務所確認後再行繳納。</div>
+    </div>
+  </div>
+
+  <script>
+    const CONFIG = {
+      residentThresholdTax: 2000,
+      firmThresholdTax: 2000,
+      firmRate: 0.10,
+      nhiThreshold: 20000,
+      nhiRate: 0.0211
+    };
+
+    let calcMode = "gross";
+
+    function setCalcMode(mode) {
+      calcMode = mode;
+      document.getElementById("btnGross").classList.toggle("active", mode === "gross");
+      document.getElementById("btnNet").classList.toggle("active", mode === "net");
+      document.getElementById("amountLabel").textContent =
+        mode === "gross"
+          ? "4. 請輸入應給付總額（新臺幣元）"
+          : "4. 請輸入對方實拿金額（新臺幣元）";
+      calculate();
+    }
+
+    function fmt(n) {
+      return `${Math.round(n || 0).toLocaleString("zh-TW")} 元`;
+    }
+
+    function getRates(residency, incomeType) {
+      if (residency === "firm") {
+        return {
+          rate: CONFIG.firmRate,
+          thresholdTax: CONFIG.firmThresholdTax,
+          applyNhi: false,
+          desc: "選擇「事務所」時，所得稅扣繳採 10% 試算（單次扣繳稅額超過 2,000 元起扣），二代健保補充保費為 0 元；實際請依憑證性質與最新法規確認。"
+        };
+      }
+      if (residency === "resident") {
+        if (incomeType === "salary") {
+          return {
+            rate: 0.05,
+            thresholdTax: CONFIG.residentThresholdTax,
+            applyNhi: true,
+            desc: "境內居住者薪資採簡化 5% 試算（實際依薪資所得扣繳辦法級距與起扣點為準）。"
+          };
+        }
+        return {
+          rate: 0.10,
+          thresholdTax: CONFIG.residentThresholdTax,
+          applyNhi: true,
+          desc: "境內居住者租金／執行業務所得稅率 10%，單次扣繳稅額超過 2,000 元（給付達 20,010 元起）扣繳。"
+        };
+      } else {
+        if (incomeType === "salary") {
+          return {
+            rate: 0.06,
+            thresholdTax: 0,
+            applyNhi: true,
+            desc: "非境內居住者薪資採 6% 試算（全月薪資給付總額超過基本工資 1.5 倍者適用 18%，請依實際薪資水準調整）。"
+          };
+        }
+        return {
+          rate: 0.20,
+          thresholdTax: 0,
+          applyNhi: true,
+          desc: "非境內居住者租金／執行業務所得稅率 20%，無起扣門檻，須於代扣稅款日起 10 日內繳納並申報。"
+        };
+      }
+    }
+
+    function calcBreakdown(residency, info, grossAmount) {
+      let wht = 0;
+      if (residency === "firm" || residency === "resident") {
+        const rawTax = Math.round(grossAmount * info.rate);
+        wht = rawTax > info.thresholdTax ? rawTax : 0;
+      } else {
+        wht = Math.round(grossAmount * info.rate);
+      }
+
+      const nhi = (info.applyNhi && grossAmount >= CONFIG.nhiThreshold)
+        ? Math.round(grossAmount * CONFIG.nhiRate)
+        : 0;
+
+      const net = grossAmount - wht - nhi;
+      return { wht, nhi, net };
+    }
+
+    function calculate() {
+      const residency = document.getElementById("residency").value;
+      const incomeType = document.getElementById("incomeType").value;
+      const raw = parseFloat(document.getElementById("amountInput").value);
+      const info = getRates(residency, incomeType);
+
+      document.getElementById("ruleDesc").textContent = info.desc;
+
+      let gross = 0, wht = 0, nhi = 0, net = 0;
+
+      if (!isNaN(raw) && raw > 0) {
+        if (calcMode === "gross") {
+          gross = Math.round(raw);
+          const res = calcBreakdown(residency, info, gross);
+          wht = res.wht;
+          nhi = res.nhi;
+          net = res.net;
+        } else {
+          const targetNet = Math.round(raw);
+          let estGross = targetNet;
+          for (let i = 0; i < 6; i++) {
+            const temp = calcBreakdown(residency, info, estGross);
+            estGross = targetNet + temp.wht + temp.nhi;
+          }
+          gross = estGross;
+          const res = calcBreakdown(residency, info, gross);
+          wht = res.wht;
+          nhi = res.nhi;
+          net = res.net;
+        }
+      }
+
+      document.getElementById("grossOut").textContent = fmt(gross);
+      document.getElementById("whtOut").textContent = fmt(wht);
+      document.getElementById("nhiOut").textContent = fmt(nhi);
+      document.getElementById("netOut").textContent = fmt(net);
+
+      const taxBtn = document.getElementById("linkTaxPortal");
+      const nhiBtn = document.getElementById("linkNhiPortal");
+      const taxBadge = document.getElementById("taxBadge");
+      const nhiBadge = document.getElementById("nhiBadge");
+      const statusEl = document.getElementById("portalStatus");
+
+      taxBtn.classList.toggle("ready-tax", wht > 0);
+      nhiBtn.classList.toggle("ready-nhi", nhi > 0);
+
+      taxBadge.textContent = wht > 0 ? `應扣 ${fmt(wht)} →` : "前往列印 →";
+      nhiBadge.textContent = nhi > 0 ? `應扣 ${fmt(nhi)} →` : "前往列印 →";
+
+      if (gross <= 0) {
+        statusEl.textContent = "請先輸入金額試算，系統會依應繳項目亮起對應按鈕。";
+      } else if (wht > 0 && nhi > 0) {
+        statusEl.textContent = "本筆同時產生「所得稅扣繳」與「二代健保」，建議兩張繳款書都前往列印。";
+      } else if (wht > 0) {
+        statusEl.textContent = "本筆需繳納「所得稅扣繳」，可直接點選橘色按鈕前往財政部列印。";
+      } else if (nhi > 0) {
+        statusEl.textContent = "本筆需繳納「二代健保補充保費」，可直接點選藍色按鈕前往健保署列印。";
+      } else {
+        statusEl.textContent = "本筆試算無應扣繳稅額或二代健保費（0 元），仍可點選下方按鈕前往官方查詢。";
+      }
+    }
+
+    function copyResult() {
+      const residencyText = document.getElementById("residency").selectedOptions[0].text;
+      const gross = document.getElementById("grossOut").textContent;
+      const wht = document.getElementById("whtOut").textContent;
+      const nhi = document.getElementById("nhiOut").textContent;
+      const net = document.getElementById("netOut").textContent;
+      const text = `【扣繳與二代健保試算】\n身分別：${residencyText}\n應給付總額：${gross}\n所得稅扣繳：${wht}\n二代健保（2.11%）：${nhi}\n實際匯款／實拿淨額：${net}`;
+
+      navigator.clipboard?.writeText(text).then(() => {
+        document.getElementById("copiedMsg").textContent = "已複製試算明細！";
+      }).catch(() => {
+        document.getElementById("copiedMsg").textContent = "請手動選取結果複製。";
+      });
+    }
+
+    calculate();
+  </script>
+</body>
+</html>
