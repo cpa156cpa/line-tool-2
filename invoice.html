@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>模擬銷項發票計算機</title>
+  <style>
+    * { box-sizing: border-box; font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; }
+    body { margin: 0; padding: 16px; background: #f3f5f8; color: #1f2937; }
+    .container { max-width: 480px; margin: 0 auto; }
+    .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); margin-bottom: 16px; }
+    h1 { font-size: 18px; margin: 0 0 12px; text-align: center; }
+    .mode-switch { display: flex; gap: 8px; margin-bottom: 12px; }
+    .mode-btn { flex: 1; padding: 10px; border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .mode-btn.active { background: #0f766e; color: #fff; border-color: #0f766e; }
+    label { display: block; font-size: 14px; margin-bottom: 6px; font-weight: 600; }
+    input[type="number"] { width: 100%; padding: 12px; font-size: 18px; border: 1px solid #94a3b8; border-radius: 8px; }
+
+    /* 模擬銷項發票票面 */
+    .invoice-box { border: 2px solid #0f766e; border-radius: 8px; background: #fffdf7; overflow: hidden; }
+    .invoice-header { background: #0f766e; color: #fff; padding: 10px 14px; font-weight: bold; display: flex; justify-content: space-between; font-size: 15px; }
+    .inv-table { width: 100%; border-collapse: collapse; }
+    .inv-table th, .inv-table td { border: 1px solid #cbd5e1; padding: 10px 12px; font-size: 14px; }
+    .inv-table th { width: 32%; background: #f1f5f9; text-align: left; font-weight: 600; }
+    .inv-table td { text-align: right; font-weight: 700; font-size: 16px; }
+    .chinese-row td { text-align: left; color: #b45309; font-size: 15px; background: #fffbeb; }
+
+    .copy-btn { width: 100%; margin-top: 12px; padding: 12px; border: none; border-radius: 8px; background: #1d4ed8; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .hint { font-size: 12px; color: #64748b; margin-top: 8px; line-height: 1.5; }
+    .copied-msg { text-align: center; color: #15803d; font-size: 13px; margin-top: 8px; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>銷項發票金額試算</h1>
+      <div class="mode-switch">
+        <button type="button" id="btnTaxIncluded" class="mode-btn active" onclick="setMode('included')">輸入含稅總額</button>
+        <button type="button" id="btnTaxExcluded" class="mode-btn" onclick="setMode('excluded')">輸入未稅銷售額</button>
+      </div>
+      <label id="amountLabel" for="amountInput">請輸入發票總金額（含稅，新臺幣元）</label>
+      <input type="number" id="amountInput" inputmode="numeric" placeholder="例如：10500" oninput="calculate()" />
+    </div>
+
+    <div class="card">
+      <div class="invoice-box">
+        <div class="invoice-header">
+          <span>銷項發票金額模擬單</span>
+          <span>應稅 5%</span>
+        </div>
+        <table class="inv-table">
+          <tr>
+            <th>銷售額</th>
+            <td id="salesAmount">0</td>
+          </tr>
+          <tr>
+            <th>營業稅額</th>
+            <td id="taxAmount">0</td>
+          </tr>
+          <tr>
+            <th>總計</th>
+            <td id="totalAmount">0</td>
+          </tr>
+          <tr class="chinese-row">
+            <th>總計國字大寫</th>
+            <td id="chineseAmount">零元整</td>
+          </tr>
+        </table>
+      </div>
+      <button type="button" class="copy-btn" onclick="copySummary()">複製發票明細</button>
+      <div id="copiedMsg" class="copied-msg"></div>
+      <div class="hint">※ 試算公式採營業稅 5% 計算（含稅反推銷售額採四捨五入取整數，稅額＝總計－銷售額），實際開立仍以申報規定為準。</div>
+    </div>
+  </div>
+
+  <script>
+    let mode = "included"; // 'included' | 'excluded'
+
+    function setMode(newMode) {
+      mode = newMode;
+      document.getElementById("btnTaxIncluded").classList.toggle("active", mode === "included");
+      document.getElementById("btnTaxExcluded").classList.toggle("active", mode === "excluded");
+      document.getElementById("amountLabel").textContent =
+        mode === "included"
+          ? "請輸入發票總金額（含稅，新臺幣元）"
+          : "請輸入未稅銷售額（新臺幣元）";
+      document.getElementById("amountInput").placeholder =
+        mode === "included" ? "例如：10500" : "例如：10000";
+      calculate();
+    }
+
+    function toChineseUpper(num) {
+      num = Math.floor(Math.abs(num));
+      if (num === 0) return "零元整";
+
+      const digits = ["零", "壹", "貳", "參", "肆", "伍", "陸", "柒", "捌", "玖"];
+      const units = ["", "拾", "佰", "仟"];
+      const bigUnits = ["", "萬", "億", "兆"];
+
+      function sectionToChinese(sec) {
+        let str = "";
+        let zeroFlag = false;
+        for (let i = 0; i < 4; i++) {
+          const d = sec % 10;
+          sec = Math.floor(sec / 10);
+          if (d === 0) {
+            if (str !== "") zeroFlag = true;
+          } else {
+            if (zeroFlag) {
+              str = "零" + str;
+              zeroFlag = false;
+            }
+            str = digits[d] + units[i] + str;
+          }
+        }
+        return str;
+      }
+
+      let result = "";
+      let bigIdx = 0;
+      let needZeroBetweenSections = false;
+
+      while (num > 0) {
+        const sec = num % 10000;
+        num = Math.floor(num / 10000);
+        if (sec !== 0) {
+          let secStr = sectionToChinese(sec);
+          if (needZeroBetweenSections && sec < 1000) {
+            secStr = "零" + secStr;
+          }
+          result = secStr + bigUnits[bigIdx] + result;
+          needZeroBetweenSections = false;
+        } else {
+          if (result !== "") needZeroBetweenSections = true;
+        }
+        bigIdx++;
+      }
+
+      return result + "元整";
+    }
+
+    function formatNum(n) {
+      return Number(n || 0).toLocaleString("zh-TW");
+    }
+
+    function calculate() {
+      const raw = parseFloat(document.getElementById("amountInput").value);
+      let sales = 0, tax = 0, total = 0;
+
+      if (!isNaN(raw) && raw > 0) {
+        if (mode === "included") {
+          total = Math.round(raw);
+          sales = Math.round(total / 1.05);
+          tax = total - sales;
+        } else {
+          sales = Math.round(raw);
+          tax = Math.round(sales * 0.05);
+          total = sales + tax;
+        }
+      }
+
+      document.getElementById("salesAmount").textContent = formatNum(sales);
+      document.getElementById("taxAmount").textContent = formatNum(tax);
+      document.getElementById("totalAmount").textContent = formatNum(total);
+      document.getElementById("chineseAmount").textContent = toChineseUpper(total);
+    }
+
+    function copySummary() {
+      const sales = document.getElementById("salesAmount").textContent;
+      const tax = document.getElementById("taxAmount").textContent;
+      const total = document.getElementById("totalAmount").textContent;
+      const chinese = document.getElementById("chineseAmount").textContent;
+      const text = `【銷項發票金額試算】\n銷售額：${sales}\n營業稅額：${tax}\n總計：${total}\n國字大寫：${chinese}`;
+
+      navigator.clipboard?.writeText(text).then(() => {
+        document.getElementById("copiedMsg").textContent = "已複製發票明細，可直接貼上！";
+      }).catch(() => {
+        document.getElementById("copiedMsg").textContent = "請手動選取下方票面文字複製。";
+      });
+    }
+  </script>
+</body>
+</html>
